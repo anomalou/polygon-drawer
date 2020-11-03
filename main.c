@@ -33,10 +33,10 @@ struct Node* AddNode(struct Figure* figure);
 void InsertNode(struct Figure* figure, struct Node* node);
 struct Node* GetLastNode(struct Figure* figure);
 
-int area(struct Node* a, struct Node* b, struct Node* c);
-byte isIntersect(int a, int b, int c, int d);
-byte Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d);
-byte CheckVector(struct Node* a, struct Node* b);
+// int area(struct Node* a, struct Node* b, struct Node* c);
+// byte isIntersect(int a, int b, int c, int d);
+WINBOOL Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d);
+WINBOOL IsVectorIntersect(struct Node* a, struct Node* b);
 
 HBRUSH success;
 HBRUSH falue;
@@ -322,46 +322,81 @@ struct Node* GetLastNode(struct Figure* figure){
     }
 }
 
-int area(struct Node* a, struct Node* b, struct Node* c){
-    return (b->x - a->x) * (c->y - a->y) - (b->y - a->y) * (c->x - a->x);
+WINBOOL Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d){
+    POINT pa, pb, pc, pd;
+    pa.x = a->x;
+    pa.y = a->y;
+    pb.x = b->x;
+    pb.y = b->y;
+    pc.x = c->x;
+    pc.y = c->y;
+    pd.x = d->x;
+    pd.y = d->y;
+
+    if((pa.x == pd.x && pa.y == pd.y) || (pb.x == pc.x && pb.y == pc.y))
+        return FALSE;
+    
+    POINT projection1, projection2, lenght;
+    projection1.x = pb.x - pa.x;
+    projection1.y = pb.y - pa.y;
+    projection2.x = pd.x - pc.x;
+    projection2.y = pd.y - pc.y;
+
+    lenght.x = pa.x - pc.x;
+    lenght.y = pa.y - pc.y;
+
+    int denominator;
+    int numeratorA;
+    int numeratorB;
+
+    denominator = projection2.y * projection1.x - projection2.x * projection1.y;
+    numeratorA = projection2.x * lenght.y - projection2.y * lenght.x;
+    numeratorB = projection1.x * lenght.y - projection1.y * lenght.x;
+
+    if(denominator == 0 && (numeratorA != 0 || numeratorB != 0))
+        return FALSE;
+
+    
+    float residual1 = (float)numeratorA / (float)denominator;
+    float residual2 = (float)numeratorB / (float)denominator;
+
+    if(residual1 < 0 || residual1 > 1)
+        return FALSE;
+    
+    if(residual2 < 0 || residual2 > 1)
+        return FALSE;
+
+    return TRUE;
 }
 
-byte isIntersect(int a, int b, int c, int d){
-    int t;
-    if (a > b){
-        t = a;
-        a = b;
-        b = t;
-    }
-	if (c > d){
-        t = c;
-        c = d;
-        d = t;
-    }
-	return max(a,c) <= min(b,d);
-}
-
-byte Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d){
-    return isIntersect(a->x, b->x, c->x, d->x) && 
-    isIntersect(a->y, b->y, c->y, d->y) && 
-    (area(a, b, c) * area(a, b, d) <= 0) && 
-    (area(c, d, a) * area(c, d, b) <= 0);
-}
-
-byte CheckVector(struct Node* a, struct Node* b){
+WINBOOL IsVectorIntersect(struct Node* a, struct Node* b){
     struct Figure* figure = headFigure;
     while(figure != NULL){
-        if(figure->nodeNumber > 2){
+        if(figure->complete == 0){
+            if(figure->nodeNumber > 1){
+                struct Node* prev = figure->head;
+                struct Node* next = prev->next;
+                while(next != NULL){
+                    if(Intersect(a, b, prev, next) == TRUE)
+                        return TRUE;
+                    next = next->next;
+                    prev = prev->next;
+                }
+            }
+        }else{
+            struct Node* first = figure->head;
             struct Node* prev = figure->head;
             struct Node* next = prev->next;
-            while(next->next != NULL){
-                if(Intersect(a, b, prev, next) == 1)
-                    return 1;
+            while(next != NULL){
+                if(Intersect(a, b, prev, next) == TRUE)
+                    return TRUE;
                 next = next->next;
                 prev = prev->next;
             }
+            if(Intersect(a, b, first, prev) == TRUE)
+                return 1;
         }
         figure = figure->next;
     }
-    return 0;
+    return FALSE;
 }
