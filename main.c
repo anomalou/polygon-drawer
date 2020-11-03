@@ -19,6 +19,8 @@ struct Figure{
     struct Figure* next;
     byte nodeNumber;
     byte complete;
+    POINT paintPoint;
+    byte filled;
 };
 
 struct Setup{
@@ -28,15 +30,17 @@ struct Setup{
 
 struct Figure* headFigure;
 
+struct Figure* currentPaintFigure;
+
 struct Figure* AddFigure();
 struct Node* AddNode(struct Figure* figure);
 void InsertNode(struct Figure* figure, struct Node* node);
 struct Node* GetLastNode(struct Figure* figure);
 
-// int area(struct Node* a, struct Node* b, struct Node* c);
-// byte isIntersect(int a, int b, int c, int d);
 WINBOOL Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d);
 WINBOOL IsVectorIntersect(struct Node* a, struct Node* b);
+WINBOOL IsPointInside(int x, int y);
+void RecurFill(HDC hdc, int x, int y);
 
 HBRUSH success;
 HBRUSH falue;
@@ -78,6 +82,7 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
         setup = malloc(sizeof(struct Setup));
         setup->currentFigure = NULL;
         setup->currentNode = NULL;
+        currentPaintFigure = NULL;
         success = CreateSolidBrush(RGB(100, 255, 100));
         falue = CreateSolidBrush(RGB(255, 100, 100));
         solid = CreateSolidBrush(RGB(0, 0, 0));
@@ -123,6 +128,9 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                         MoveToEx(memDC, figure->head->x, figure->head->y, NULL);
                         LineTo(memDC, prev->x, prev->y);
                         Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
+                        if(figure->filled == 1){
+                            RecurFill(memDC, figure->paintPoint.x, figure->paintPoint.y);
+                        }
                     }else{
                         if(setup->currentNode != NULL){
                             if(setup->currentNode->allow == 1){
@@ -170,14 +178,18 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
             if(setup->currentFigure->nodeNumber > 0){
                 //check if line cross other figure
                 struct Node* node = GetLastNode(setup->currentFigure);
-                if(CheckVector(node, setup->currentNode) == 1)
+                if(IsVectorIntersect(node, setup->currentNode) == TRUE)
                     setup->currentNode->allow = 0;
                 else
                     setup->currentNode->allow = 1;
                 //end check
             }else{
+                if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE)
+                    setup->currentNode->allow = 0;
+                else
+                    setup->currentNode->allow = 1;
+
                 //check if not in other figure
-                setup->currentNode->allow = 1;
                 //end check
             }
             RECT paintRect;
@@ -186,7 +198,7 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
         break;
         case WM_LBUTTONUP:
             if(setup->currentNode != NULL && setup->currentFigure != NULL){
-                if(setup->currentNode->allow == 1){
+                if(setup->currentNode->allow == TRUE){
                     InsertNode(setup->currentFigure, setup->currentNode);
                     setup->currentNode = NULL;
                 }else{
@@ -204,7 +216,12 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                 //check if line cross other figure
                 if(setup->currentFigure->nodeNumber > 0){
                     struct Node* node = GetLastNode(setup->currentFigure);
-                    if(CheckVector(node, setup->currentNode) == 1)
+                    if(IsVectorIntersect(node, setup->currentNode) == 1)
+                        setup->currentNode->allow = 0;
+                    else
+                        setup->currentNode->allow = 1;
+                }else{
+                    if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE)
                         setup->currentNode->allow = 0;
                     else
                         setup->currentNode->allow = 1;
@@ -219,7 +236,7 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
             if(setup->currentFigure != NULL){
                 if(setup->currentFigure->nodeNumber > 2){
                     struct Node* node = GetLastNode(setup->currentFigure);
-                    if(CheckVector(node, setup->currentFigure->head) == 0){
+                    if(IsVectorIntersect(node, setup->currentFigure->head) == 0){
                         //check if not in other figure
                         setup->currentFigure->complete = 1;
                         setup->currentFigure = NULL;
@@ -229,7 +246,18 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                     }       
                 }
             }else{
-                //fill figure algoritme
+                int x = GET_X_LPARAM(lParam);
+                int y = GET_Y_LPARAM(lParam);
+                if(IsPointInside(x, y) == TRUE){
+                    if(currentPaintFigure != NULL){
+                        currentPaintFigure->filled = 1;
+                        currentPaintFigure->paintPoint.x = x;
+                        currentPaintFigure->paintPoint.y = y;
+                        RECT paintRect;
+                        GetClientRect(hwnd, &paintRect);
+                        InvalidateRect(hwnd, &paintRect, TRUE);
+                    }
+                }
             }
         break;
         case WM_CLOSE:
@@ -394,9 +422,73 @@ WINBOOL IsVectorIntersect(struct Node* a, struct Node* b){
                 prev = prev->next;
             }
             if(Intersect(a, b, first, prev) == TRUE)
-                return 1;
+                return TRUE;
         }
         figure = figure->next;
     }
     return FALSE;
+}
+
+WINBOOL IsPointInside(int x, int y){
+    struct Node* vectorA = malloc(sizeof(struct Node));
+    struct Node* vectorB = malloc(sizeof(struct Node));
+
+    vectorA->x = x;
+    vectorA->y = y;
+    vectorB->x = x + 2000;
+    vectorB->y = y + 10;
+
+    struct Figure* figure = headFigure;
+
+    int intersects = 0;
+
+    while(figure  != NULL){
+        if(figure->complete == 1){
+            struct Node* first = figure->head;
+            struct Node* prev = figure->head;
+            struct Node* next = prev->next;
+            while(next != NULL){
+                if(Intersect(vectorA, vectorB, prev, next) == TRUE)
+                    intersects++;
+                next = next->next;
+                prev = prev->next;
+            }
+            if(Intersect(vectorA, vectorB, first, prev) == TRUE)
+                intersects++;
+            if(intersects % 2 != 0){
+                currentPaintFigure = figure;
+                return TRUE;
+            }
+            intersects = 0;
+        }
+        figure = figure->next;
+    }
+
+    return FALSE;
+}
+
+void RecurFill(HDC hdc, int x, int y){
+    COLORREF cross = RGB(0, 0, 0);
+    RECT client;
+    GetClientRect(mainHWND, &client);
+
+    COLORREF up = GetPixel(hdc, x, y - 1);
+    COLORREF down = GetPixel(hdc, x, y + 1);
+    COLORREF left = GetPixel(hdc, x - 1, y);
+    COLORREF right = GetPixel(hdc, x + 1, y);
+
+    SetPixel(hdc, x, y, cross);
+
+    if(up != cross)
+        if(y > -1)
+            RecurFill(hdc, x, y - 1);
+    if(down != cross)
+        if(y < client.bottom)
+            RecurFill(hdc, x, y + 1);
+    if(left != cross)
+        if(x > -1)
+            RecurFill(hdc, x - 1, y);
+    if(right != cross)
+        if(x < client.right)
+            RecurFill(hdc, x + 1, y);
 }
