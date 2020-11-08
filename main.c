@@ -2,10 +2,21 @@
 
 #include <windows.h>
 #include <windowsx.h>
+#include <wingdi.h>
 
 HINSTANCE hInst;
 
 HWND mainHWND;
+
+struct List{
+    POINT pixel;
+    struct List* next;
+};
+
+struct Queue{
+    struct List* front;
+    struct List* back;
+};
 
 struct Node{
     struct Node* next;
@@ -19,8 +30,10 @@ struct Figure{
     struct Figure* next;
     byte nodeNumber;
     byte complete;
-    POINT paintPoint;
     byte filled;
+    LONG_PTR fillHDC;
+    LONG_PTR fillBITMAP;
+    POINT paintPoint;
 };
 
 struct Setup{
@@ -37,10 +50,18 @@ struct Node* AddNode(struct Figure* figure);
 void InsertNode(struct Figure* figure, struct Node* node);
 struct Node* GetLastNode(struct Figure* figure);
 
+void InitQueue(struct Queue* queue);
+WINBOOL IsEmptyQueue(struct Queue* queue);
+void Insert(struct Queue* queue, POINT pixel);
+POINT Remove(struct Queue* queue);
+POINT GetFirst(struct Queue* queue);
+
+
 WINBOOL Intersect(struct Node* a, struct Node* b, struct Node* c, struct Node* d);
 WINBOOL IsVectorIntersect(struct Node* a, struct Node* b);
 WINBOOL IsPointInside(int x, int y);
-void RecurFill(HDC hdc, int x, int y);
+void RecurFill(HDC hdc, COLORREF replace, int x, int y);
+void QueueFill(HDC hdc, HDC copyHDC, COLORREF replace, int x, int y);
 
 HBRUSH success;
 HBRUSH falue;
@@ -63,7 +84,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE lhInst, LPSTR cmd, INT cmdCoun
 
     RegisterClass(&mainClass);
 
-    mainHWND = CreateWindow(L"MainClass", L"GeoGraph", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, hInstance, NULL);
+    mainHWND = CreateWindow(L"MainClass", L"GeoGraph", WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE, 0, 0, 1920, 1080, NULL, NULL, hInstance, NULL);
     ShowWindow(mainHWND, SW_SHOW);
 
     MSG msg = {};
@@ -86,9 +107,9 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
         success = CreateSolidBrush(RGB(100, 255, 100));
         falue = CreateSolidBrush(RGB(255, 100, 100));
         solid = CreateSolidBrush(RGB(0, 0, 0));
-        pSuccess = CreatePen(PS_SOLID, 4, RGB(100, 255, 100));
-        pFalue = CreatePen(PS_SOLID, 4, RGB(255, 100, 100));
-        pSolid = CreatePen(PS_SOLID, 4, RGB(0, 0, 0));
+        pSuccess = CreatePen(PS_SOLID, 2, RGB(100, 255, 100));
+        pFalue = CreatePen(PS_SOLID, 2, RGB(255, 100, 100));
+        pSolid = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)setup);
     }else{
         setup = (struct Setup*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
@@ -115,21 +136,73 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                     struct Node* next = prev->next;
                     SelectObject(memDC, solid);
                     SelectObject(memDC, pSolid);
-                    if(next == NULL)
-                        Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
+                    // if(next == NULL)
+                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                     while(next != NULL){
                         MoveToEx(memDC, prev->x, prev->y, NULL);
                         LineTo(memDC, next->x, next->y);
-                        Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
+                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                         next = next->next;
                         prev = prev->next;
                     }
                     if(figure->complete == 1){
                         MoveToEx(memDC, figure->head->x, figure->head->y, NULL);
                         LineTo(memDC, prev->x, prev->y);
-                        Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
+                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                         if(figure->filled == 1){
-                            RecurFill(memDC, figure->paintPoint.x, figure->paintPoint.y);
+                            // RecurFill(memDC, GetPixel(memDC, figure->paintPoint.x, figure->paintPoint.y), figure->paintPoint.x, figure->paintPoint.y);
+
+                            if(figure->fillHDC == 0){
+                                figure->fillHDC = (LONG_PTR)CreateCompatibleDC(hdc);
+                                figure->fillBITMAP = (LONG_PTR)CreateCompatibleBitmap(hdc, paintRect.right, paintRect.bottom);
+                                SelectObject((HDC)figure->fillHDC, (HBITMAP)figure->fillBITMAP);
+                                QueueFill(memDC, figure->fillHDC, GetPixel(memDC, figure->paintPoint.x, figure->paintPoint.y), figure->paintPoint.x, figure->paintPoint.y);
+                                // BitBlt(figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, memDC, 0, 0, SRCCOPY);
+                            }else{
+                                SelectObject((HDC)figure->fillHDC, (HBITMAP)figure->fillBITMAP);
+                                TransparentBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, RGB(0, 0, 0));
+                                // AlphaBlend(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, blend);
+                                // BitBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, SRCCOPY);
+                            }
+
+                            //filling figure
+                            // if(figure->filling == 0){
+                            //     HDC fill = CreateCompatibleDC(memDC);
+                            //     BITMAPINFO info;
+                            //     VOID *bits;
+                            //     info.bmiHeader.biWidth = paintRect.right;
+                            //     info.bmiHeader.biHeight = paintRect.bottom;
+                            //     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                            //     info.bmiHeader.biPlanes = 1;
+                            //     info.bmiHeader.biBitCount = 32;
+                            //     info.bmiHeader.biCompression = BI_RGB;
+                            //     info.bmiHeader.biSizeImage = 0;
+                            //     figure->filling = (LONG_PTR)CreateDIBSection(fill, &info, DIB_RGB_COLORS, &bits, NULL, 0);
+                            //     SelectObject(fill, (HBITMAP)figure->filling);
+                            //     SelectObject(fill, success);
+                            //     for(int y = 0; y < paintRect.bottom; y++){
+                            //         for(int x = 0; x < paintRect.right; x++){
+                            //             ((UINT*)bits)[x + y * paintRect.right] = 2;
+                            //         }
+                            //     }
+                            //     RecurFill(fill, figure->paintPoint.x, figure->paintPoint.y);
+                            //     // RECT f;
+                            //     // f.left = 100;
+                            //     // f.top = 100;
+                            //     // f.right = 300;
+                            //     // f.bottom = 400;
+                            //     // FillRect(fill, &f, success);
+                            //     // Rectangle(fill, 100, 100, 400, 400);
+                            //     BLENDFUNCTION blend;
+                            //     blend.BlendOp = AC_SRC_OVER;
+                            //     blend.BlendFlags = 0;
+                            //     blend.SourceConstantAlpha = 255;
+                            //     blend.AlphaFormat = AC_SRC_ALPHA;
+                            //     WINBOOL bool = AlphaBlend(memDC, 0, 0, paintRect.right, paintRect.bottom, fill, 0, 0, paintRect.right, paintRect.bottom, blend);
+                            //     // BitBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, fill, 0, 0, SRCCOPY);
+                            //     SelectObject(memDC, bitMap);
+                            // }
+
                         }
                     }else{
                         if(setup->currentNode != NULL){
@@ -142,7 +215,7 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                             }
                             MoveToEx(memDC, prev->x, prev->y, NULL);
                             LineTo(memDC, setup->currentNode->x, setup->currentNode->y);
-                            Ellipse(memDC, setup->currentNode->x - 3, setup->currentNode->y - 3, setup->currentNode->x + 3, setup->currentNode->y + 3);
+                            // Ellipse(memDC, setup->currentNode->x - 3, setup->currentNode->y - 3, setup->currentNode->x + 3, setup->currentNode->y + 3);
                         }
                     }
                 }else{
@@ -285,6 +358,9 @@ struct Figure* AddFigure(){
         headFigure->next = NULL;
         headFigure->nodeNumber = 0;
         headFigure->complete = 0;
+        headFigure->filled = 0;
+        headFigure->fillHDC = 0;
+        headFigure->fillBITMAP = 0;
         return headFigure;
     }else{
         struct Figure* node = headFigure;
@@ -297,6 +373,9 @@ struct Figure* AddFigure(){
         node->next = NULL;
         node->nodeNumber = 0;
         node->complete = 0;
+        node->filled = 0;
+        node->fillHDC = 0;
+        node->fillBITMAP = 0;
         return node;
     }
 }
@@ -430,17 +509,24 @@ WINBOOL IsVectorIntersect(struct Node* a, struct Node* b){
 }
 
 WINBOOL IsPointInside(int x, int y){
-    struct Node* vectorA = malloc(sizeof(struct Node));
-    struct Node* vectorB = malloc(sizeof(struct Node));
+    struct Node* vA1 = malloc(sizeof(struct Node));
+    struct Node* vA2 = malloc(sizeof(struct Node));
+    struct Node* vB1 = malloc(sizeof(struct Node));
+    struct Node* vB2 = malloc(sizeof(struct Node));
 
-    vectorA->x = x;
-    vectorA->y = y;
-    vectorB->x = x + 2000;
-    vectorB->y = y + 10;
+    vA1->x = x;
+    vA1->y = y;
+    vA2->x = x + 2000;
+    vA2->y = y + 10;
+    vB1->x = x;
+    vB1->y = y;
+    vB2->x = x + 10;
+    vB2->y = y + 2000;
 
     struct Figure* figure = headFigure;
 
-    int intersects = 0;
+    int intersectsA = 0;
+    int intersectsB = 0;
 
     while(figure  != NULL){
         if(figure->complete == 1){
@@ -448,18 +534,23 @@ WINBOOL IsPointInside(int x, int y){
             struct Node* prev = figure->head;
             struct Node* next = prev->next;
             while(next != NULL){
-                if(Intersect(vectorA, vectorB, prev, next) == TRUE)
-                    intersects++;
+                if(Intersect(vA1, vA2, prev, next) == TRUE)
+                    intersectsA++;
+                if(Intersect(vB1, vB2, prev, next) == TRUE)
+                    intersectsB++;
                 next = next->next;
                 prev = prev->next;
             }
-            if(Intersect(vectorA, vectorB, first, prev) == TRUE)
-                intersects++;
-            if(intersects % 2 != 0){
+            if(Intersect(vA1, vA2, first, prev) == TRUE)
+                intersectsA++;
+            if(Intersect(vB1, vB2, first, prev) == TRUE)
+                intersectsB++;
+            if(intersectsA % 2 != 0 && intersectsB % 2 != 0){
                 currentPaintFigure = figure;
                 return TRUE;
             }
-            intersects = 0;
+            intersectsA = 0;
+            intersectsB = 0;
         }
         figure = figure->next;
     }
@@ -467,8 +558,120 @@ WINBOOL IsPointInside(int x, int y){
     return FALSE;
 }
 
-void RecurFill(HDC hdc, int x, int y){
-    COLORREF cross = RGB(0, 0, 0);
+void InitQueue(struct Queue* queue){
+    queue->front = NULL;
+    queue->back = NULL;
+}
+
+WINBOOL IsEmptyQueue(struct Queue* queue){
+    if(queue->front == NULL)
+        return TRUE;
+    else
+        return FALSE;
+}
+
+void Insert(struct Queue* queue, POINT pixel){
+    if(queue->front == NULL && queue->back == NULL){
+        queue->back = malloc(sizeof(struct List));
+        queue->back->next = NULL;
+        queue->back->pixel = pixel;
+        queue->front = queue->back;
+    }else{
+        struct List* list = queue->front;
+        while(list->next != NULL){
+            list = list->next;
+        }
+        list->next = malloc(sizeof(struct List));
+        list = list->next;
+        list->next = NULL;
+        list->pixel = pixel;
+        queue->back = list;
+    }
+}
+
+POINT Remove(struct Queue* queue){
+    POINT pixel;
+    if(IsEmptyQueue(queue) == FALSE){
+        pixel = queue->front->pixel;
+        queue->front = queue->front->next;
+        if(queue->front == NULL)
+            queue->back = NULL;
+    }else{
+        pixel.x = -1;
+        pixel.y = -1;
+    }
+        return pixel;
+}
+
+POINT GetFirst(struct Queue* queue){
+    POINT pixel;
+    if(IsEmptyQueue(queue) == FALSE)
+        pixel = queue->front->pixel;
+    else{
+        pixel.x = -1;
+        pixel.y = -1;
+    }
+        return pixel;
+}
+
+void QueueFill(HDC hdc, HDC copyHDC, COLORREF replace, int x, int y){
+    struct Queue* pixelQueue = malloc(sizeof(struct Queue));
+    COLORREF color = RGB(255, 0, 0);
+    InitQueue(pixelQueue);
+
+    if(GetPixel(hdc, x, y) != replace)
+        return;
+    
+    POINT pixel;
+    pixel.x = x;
+    pixel.y = y;
+
+    Insert(pixelQueue, pixel);
+    while(IsEmptyQueue(pixelQueue) == FALSE){
+        POINT dot = Remove(pixelQueue);
+        if(GetPixel(hdc, dot.x, dot.y) == replace){
+            SetPixel(hdc, dot.x, dot.y, color);
+            SetPixel(copyHDC, dot.x, dot.y, color);
+        }
+
+        if(GetPixel(hdc, dot.x - 1, dot.y) == replace){
+            SetPixel(hdc, dot.x - 1, dot.y, color);
+            SetPixel(copyHDC, dot.x - 1, dot.y, color);
+            POINT west;
+            west.x = dot.x - 1;
+            west.y = dot.y;
+            Insert(pixelQueue, west);
+        }
+        if(GetPixel(hdc, dot.x + 1, dot.y) == replace){
+            SetPixel(hdc, dot.x + 1, dot.y, color);
+            SetPixel(copyHDC, dot.x + 1, dot.y, color);
+            POINT east;
+            east.x = dot.x + 1;
+            east.y = dot.y;
+            Insert(pixelQueue, east);
+        }
+        if(GetPixel(hdc, dot.x, dot.y - 1) == replace){
+            SetPixel(hdc, dot.x, dot.y - 1, color);
+            SetPixel(copyHDC, dot.x, dot.y - 1, color);
+            POINT north;
+            north.x = dot.x;
+            north.y = dot.y - 1;
+            Insert(pixelQueue, north);
+        }
+        if(GetPixel(hdc, dot.x, dot.y + 1) == replace){
+            SetPixel(hdc, dot.x, dot.y + 1, color);
+            SetPixel(copyHDC, dot.x, dot.y + 1, color);
+            POINT south;
+            south.x = dot.x;
+            south.y = dot.y + 1;
+            Insert(pixelQueue, south);
+        }
+    }
+}
+
+// do not use it
+void RecurFill(HDC hdc, COLORREF replace, int x, int y){
+    COLORREF cross = RGB(255, 0, 0);
     RECT client;
     GetClientRect(mainHWND, &client);
 
@@ -479,16 +682,16 @@ void RecurFill(HDC hdc, int x, int y){
 
     SetPixel(hdc, x, y, cross);
 
-    if(up != cross)
-        if(y > -1)
-            RecurFill(hdc, x, y - 1);
-    if(down != cross)
+    if(up == replace)
+        if(y > 0)
+            RecurFill(hdc, replace, x, y - 1);
+    if(down == replace)
         if(y < client.bottom)
-            RecurFill(hdc, x, y + 1);
-    if(left != cross)
-        if(x > -1)
-            RecurFill(hdc, x - 1, y);
-    if(right != cross)
+            RecurFill(hdc, replace, x, y + 1);
+    if(left == replace)
+        if(x > 0)
+            RecurFill(hdc, replace, x - 1, y);
+    if(right == replace)
         if(x < client.right)
-            RecurFill(hdc, x + 1, y);
+            RecurFill(hdc, replace, x + 1, y);
 }

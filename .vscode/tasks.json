@@ -36,7 +36,8 @@
 				"${fileBasenameNoExtension}",
 				"${fileDirname}\\${fileBasenameNoExtension}.o",
 				"-lgdi32",
-				"-lcomdlg32"
+				"-lcomdlg32",
+				"-lmsimg32"
 			],
 			"options": {
 				"cwd": "${workspaceFolder}"
