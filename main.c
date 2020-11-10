@@ -63,6 +63,9 @@ WINBOOL IsPointInside(int x, int y);
 void RecurFill(HDC hdc, COLORREF replace, int x, int y);
 void QueueFill(HDC hdc, HDC copyHDC, COLORREF replace, int x, int y);
 
+LPWSTR fillError;
+LPWSTR nodeError;
+
 HBRUSH success;
 HBRUSH falue;
 HBRUSH solid;
@@ -110,6 +113,9 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
         pSuccess = CreatePen(PS_SOLID, 2, RGB(100, 255, 100));
         pFalue = CreatePen(PS_SOLID, 2, RGB(255, 100, 100));
         pSolid = CreatePen(PS_SOLID, 2, RGB(0, 0, 0));
+
+        fillError = L"Не могу начать заливку фигуры! Возможно вы пытаетесь залить фигуру снаружи!";
+        nodeError = L"Нельзя пересекать ребра фигуры! И начинать рисовать новые фигуры в других!";
         SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)setup);
     }else{
         setup = (struct Setup*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
@@ -136,73 +142,25 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                     struct Node* next = prev->next;
                     SelectObject(memDC, solid);
                     SelectObject(memDC, pSolid);
-                    // if(next == NULL)
-                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                     while(next != NULL){
                         MoveToEx(memDC, prev->x, prev->y, NULL);
                         LineTo(memDC, next->x, next->y);
-                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                         next = next->next;
                         prev = prev->next;
                     }
                     if(figure->complete == 1){
                         MoveToEx(memDC, figure->head->x, figure->head->y, NULL);
                         LineTo(memDC, prev->x, prev->y);
-                        // Ellipse(memDC, prev->x - 3, prev->y - 3, prev->x + 3, prev->y + 3);
                         if(figure->filled == 1){
-                            // RecurFill(memDC, GetPixel(memDC, figure->paintPoint.x, figure->paintPoint.y), figure->paintPoint.x, figure->paintPoint.y);
-
                             if(figure->fillHDC == 0){
                                 figure->fillHDC = (LONG_PTR)CreateCompatibleDC(hdc);
                                 figure->fillBITMAP = (LONG_PTR)CreateCompatibleBitmap(hdc, paintRect.right, paintRect.bottom);
                                 SelectObject((HDC)figure->fillHDC, (HBITMAP)figure->fillBITMAP);
                                 QueueFill(memDC, figure->fillHDC, GetPixel(memDC, figure->paintPoint.x, figure->paintPoint.y), figure->paintPoint.x, figure->paintPoint.y);
-                                // BitBlt(figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, memDC, 0, 0, SRCCOPY);
                             }else{
                                 SelectObject((HDC)figure->fillHDC, (HBITMAP)figure->fillBITMAP);
                                 TransparentBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, RGB(0, 0, 0));
-                                // AlphaBlend(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, paintRect.right, paintRect.bottom, blend);
-                                // BitBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, (HDC)figure->fillHDC, 0, 0, SRCCOPY);
                             }
-
-                            //filling figure
-                            // if(figure->filling == 0){
-                            //     HDC fill = CreateCompatibleDC(memDC);
-                            //     BITMAPINFO info;
-                            //     VOID *bits;
-                            //     info.bmiHeader.biWidth = paintRect.right;
-                            //     info.bmiHeader.biHeight = paintRect.bottom;
-                            //     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                            //     info.bmiHeader.biPlanes = 1;
-                            //     info.bmiHeader.biBitCount = 32;
-                            //     info.bmiHeader.biCompression = BI_RGB;
-                            //     info.bmiHeader.biSizeImage = 0;
-                            //     figure->filling = (LONG_PTR)CreateDIBSection(fill, &info, DIB_RGB_COLORS, &bits, NULL, 0);
-                            //     SelectObject(fill, (HBITMAP)figure->filling);
-                            //     SelectObject(fill, success);
-                            //     for(int y = 0; y < paintRect.bottom; y++){
-                            //         for(int x = 0; x < paintRect.right; x++){
-                            //             ((UINT*)bits)[x + y * paintRect.right] = 2;
-                            //         }
-                            //     }
-                            //     RecurFill(fill, figure->paintPoint.x, figure->paintPoint.y);
-                            //     // RECT f;
-                            //     // f.left = 100;
-                            //     // f.top = 100;
-                            //     // f.right = 300;
-                            //     // f.bottom = 400;
-                            //     // FillRect(fill, &f, success);
-                            //     // Rectangle(fill, 100, 100, 400, 400);
-                            //     BLENDFUNCTION blend;
-                            //     blend.BlendOp = AC_SRC_OVER;
-                            //     blend.BlendFlags = 0;
-                            //     blend.SourceConstantAlpha = 255;
-                            //     blend.AlphaFormat = AC_SRC_ALPHA;
-                            //     WINBOOL bool = AlphaBlend(memDC, 0, 0, paintRect.right, paintRect.bottom, fill, 0, 0, paintRect.right, paintRect.bottom, blend);
-                            //     // BitBlt(memDC, 0, 0, paintRect.right, paintRect.bottom, fill, 0, 0, SRCCOPY);
-                            //     SelectObject(memDC, bitMap);
-                            // }
-
                         }
                     }else{
                         if(setup->currentNode != NULL){
@@ -215,7 +173,6 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                             }
                             MoveToEx(memDC, prev->x, prev->y, NULL);
                             LineTo(memDC, setup->currentNode->x, setup->currentNode->y);
-                            // Ellipse(memDC, setup->currentNode->x - 3, setup->currentNode->y - 3, setup->currentNode->x + 3, setup->currentNode->y + 3);
                         }
                     }
                 }else{
@@ -251,14 +208,20 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
             if(setup->currentFigure->nodeNumber > 0){
                 //check if line cross other figure
                 struct Node* node = GetLastNode(setup->currentFigure);
-                if(IsVectorIntersect(node, setup->currentNode) == TRUE)
+                if(IsVectorIntersect(node, setup->currentNode) == TRUE){
                     setup->currentNode->allow = 0;
+                    MessageBox(hwnd, nodeError, L"Error!", MB_OK | MB_ICONERROR);
+                    setup->currentNode = NULL;
+                }
                 else
                     setup->currentNode->allow = 1;
                 //end check
             }else{
-                if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE)
+                if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE){
                     setup->currentNode->allow = 0;
+                    MessageBox(hwnd, nodeError, L"Error!", MB_OK | MB_ICONERROR);
+                    setup->currentNode = NULL;
+                }
                 else
                     setup->currentNode->allow = 1;
 
@@ -289,13 +252,19 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                 //check if line cross other figure
                 if(setup->currentFigure->nodeNumber > 0){
                     struct Node* node = GetLastNode(setup->currentFigure);
-                    if(IsVectorIntersect(node, setup->currentNode) == 1)
+                    if(IsVectorIntersect(node, setup->currentNode) == 1){
                         setup->currentNode->allow = 0;
+                        MessageBox(hwnd, nodeError, L"Error!", MB_OK | MB_ICONERROR);
+                        setup->currentNode = NULL;
+                    }
                     else
                         setup->currentNode->allow = 1;
                 }else{
-                    if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE)
+                    if(IsPointInside(setup->currentNode->x, setup->currentNode->y) == TRUE){
                         setup->currentNode->allow = 0;
+                        MessageBox(hwnd, nodeError, L"Error!", MB_OK | MB_ICONERROR);
+                        setup->currentNode = NULL;
+                    }
                     else
                         setup->currentNode->allow = 1;
                 }
@@ -309,14 +278,16 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
             if(setup->currentFigure != NULL){
                 if(setup->currentFigure->nodeNumber > 2){
                     struct Node* node = GetLastNode(setup->currentFigure);
-                    if(IsVectorIntersect(node, setup->currentFigure->head) == 0){
+                    if(IsVectorIntersect(node, setup->currentFigure->head) == FALSE){
                         //check if not in other figure
                         setup->currentFigure->complete = 1;
                         setup->currentFigure = NULL;
                         RECT paintRect;
                         GetClientRect(hwnd, &paintRect);
                         InvalidateRect(hwnd, &paintRect, TRUE);
-                    }       
+                    }else{
+                        MessageBox(hwnd, fillError, L"Error!", MB_OK | MB_ICONERROR);
+                    }
                 }
             }else{
                 int x = GET_X_LPARAM(lParam);
@@ -330,6 +301,8 @@ LRESULT CALLBACK WinProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam){
                         GetClientRect(hwnd, &paintRect);
                         InvalidateRect(hwnd, &paintRect, TRUE);
                     }
+                }else{
+                    MessageBox(hwnd, fillError, L"Error!", MB_OK | MB_ICONERROR);
                 }
             }
         break;
